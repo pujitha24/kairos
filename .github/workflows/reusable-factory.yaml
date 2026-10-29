@@ -606,8 +606,17 @@ jobs:
           fi
 
           # Split base image for tag generation
-          BASE_IMAGE=$(echo "${INPUTS_BASE_IMAGE}" | cut -d ':' -f 1)
-          BASE_TAG=$(echo "${INPUTS_BASE_IMAGE}" | cut -d ':' -f 2 || echo 'latest')
+          # Drop any @digest, then take the tag only from the last path component
+          # so a registry port (localhost:5000/...) is not mistaken for a tag.
+          BASE_REF="${INPUTS_BASE_IMAGE%%@*}"
+          BASE_LAST="${BASE_REF##*/}"
+          if [[ "$BASE_LAST" == *":"* ]]; then
+            BASE_TAG="${BASE_LAST#*:}"
+            BASE_IMAGE="${BASE_REF%":$BASE_TAG"}"
+          else
+            BASE_TAG="latest"
+            BASE_IMAGE="$BASE_REF"
+          fi
 
           # Handle base images with slashes (registry paths)
           # Examples:
