@@ -171,3 +171,28 @@ var _ = Describe("The recovery SSH server command", func() {
 		Expect(c.String("password")).To(BeEmpty())
 	})
 })
+
+var _ = Describe("token rotation interval", func() {
+	run := func(cmd cli.Command, args ...string) error {
+		app := cli.NewApp()
+		app.Writer = GinkgoWriter
+		app.Commands = []*cli.Command{&cmd}
+		return app.Run(append([]string{"kairos", cmd.Name, "--"}, args...))
+	}
+
+	DescribeTable("rejects an interval that is not a positive number",
+		func(cmd cli.Command, arg string) {
+			Expect(run(cmd, arg)).To(HaveOccurred())
+		},
+		Entry("generate-token 0", GenerateTokenCMD, "0"),
+		Entry("generate-token negative", GenerateTokenCMD, "-5"),
+		Entry("generate-token typo", GenerateTokenCMD, "9OO"),
+		Entry("create-config 0", CreateConfigCMD, "0"),
+		Entry("create-config typo", CreateConfigCMD, "abc"),
+	)
+
+	It("accepts a positive interval and no interval", func() {
+		Expect(run(GenerateTokenCMD, "3600")).To(Succeed())
+		Expect(run(GenerateTokenCMD)).To(Succeed())
+	})
+})

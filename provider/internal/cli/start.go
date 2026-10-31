@@ -94,6 +94,25 @@ func applyAPIDefault(envFile string) {
 
 const recoveryAddr = "127.0.0.1:2222"
 
+// parseRotationInterval reads the optional token rotation interval (seconds)
+// from the first argument. With no argument it returns the largest int, which
+// means the token does not rotate. A value that is not a positive number is an
+// error: 0 makes edgevpn divide by zero, and a typo would otherwise silently
+// turn rotation off.
+func parseRotationInterval(args cli.Args) (int, error) {
+	if !args.Present() {
+		return int(^uint(0) >> 1), nil
+	}
+	i, err := strconv.Atoi(args.Get(0))
+	if err != nil {
+		return 0, fmt.Errorf("invalid token rotation interval %q: must be a whole number of seconds: %w", args.Get(0), err)
+	}
+	if i <= 0 {
+		return 0, fmt.Errorf("invalid token rotation interval %d: must be greater than zero", i)
+	}
+	return i, nil
+}
+
 var CreateConfigCMD = cli.Command{
 	Name:      "create-config",
 	Aliases:   []string{"c"},
@@ -106,11 +125,9 @@ var CreateConfigCMD = cli.Command{
 	ArgsUsage: "Optionally takes a token rotation interval (seconds)",
 
 	Action: func(c *cli.Context) error {
-		l := int(^uint(0) >> 1)
-		if c.Args().Present() {
-			if i, err := strconv.Atoi(c.Args().Get(0)); err == nil {
-				l = i
-			}
+		l, err := parseRotationInterval(c.Args())
+		if err != nil {
+			return err
 		}
 		cc := &providerConfig.Config{P2P: &providerConfig.P2P{NetworkToken: node.GenerateNewConnectionData(l).Base64()}}
 		y, _ := yaml.Marshal(cc)
@@ -130,11 +147,9 @@ var GenerateTokenCMD = cli.Command{
 	ArgsUsage: "Optionally takes a token rotation interval (seconds)",
 
 	Action: func(c *cli.Context) error {
-		l := int(^uint(0) >> 1)
-		if c.Args().Present() {
-			if i, err := strconv.Atoi(c.Args().Get(0)); err == nil {
-				l = i
-			}
+		l, err := parseRotationInterval(c.Args())
+		if err != nil {
+			return err
 		}
 		fmt.Println(node.GenerateNewConnectionData(l).Base64())
 		return nil
