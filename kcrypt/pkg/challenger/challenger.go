@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -240,6 +241,19 @@ func generateTOFUPassphrase() (string, error) {
 // tpmHashLabel is the Secret label that records which TPM a TOFU Secret was created for.
 const tpmHashLabel = "kcrypt.kairos.io/tpm-hash"
 
+// partitionLabelKey is the Secret label and annotation that record the partition a TOFU Secret is for.
+const partitionLabelKey = "kcrypt.kairos.io/partition"
+
+// partitionLabelValue returns the partition label in a form the API server accepts as a
+// label value. User-defined partition labels are free text and can contain characters
+// Kubernetes rejects, so those are sanitized. The raw value is kept in an annotation.
+func partitionLabelValue(partitionLabel string) string {
+	if len(validation.IsValidLabelValue(partitionLabel)) == 0 {
+		return partitionLabel
+	}
+	return kube.SafeKubeName(partitionLabel)
+}
+
 // tofuNameHashLen is how many hex characters of the TPM hash go into TOFU
 // object names. 32 characters are 128 bits, so two TPMs never share a name in
 // practice. Names used to carry only 8 (legacyTOFUNameHashLen).
@@ -263,11 +277,14 @@ func createOrReuseTOFUSecret(kclient kubernetes.Interface, namespace, secretName
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      secretName,
 			Namespace: namespace,
+			Annotations: map[string]string{
+				partitionLabelKey: partitionLabel,
+			},
 			Labels: map[string]string{
 				"app.kubernetes.io/name":      "kcrypt-challenger",
 				"app.kubernetes.io/component": "encryption-secret",
 				tpmHashLabel:                  kube.SafeKubeName(tpmHash),
-				"kcrypt.kairos.io/partition":  partitionLabel,
+				partitionLabelKey:             partitionLabelValue(partitionLabel),
 				"kcrypt.kairos.io/managed-by": "kcrypt-challenger", // Additional safety label
 			},
 		},
