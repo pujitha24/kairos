@@ -14,6 +14,7 @@ package agentrun
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -202,21 +203,53 @@ func run(agentBin, cfgPath, source, finishAction string, onEvent func(ProgressEv
 		return err
 	}
 
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if stdoutTee != nil {
-			_, _ = stdoutTee.Write(line)
-			_, _ = stdoutTee.Write([]byte{'\n'})
+	reader := bufio.NewReaderSize(stdout, 64*1024)
+	for {
+		line, err := readLine(reader, maxLineBytes)
+		if len(line) > 0 || err == nil {
+			if stdoutTee != nil {
+				_, _ = stdoutTee.Write(line)
+				_, _ = stdoutTee.Write([]byte{'\n'})
+			}
+			if ev, ok := ParseLine(line); ok {
+				onEvent(ev)
+			} else if len(line) > 0 {
+				onLog(string(line))
+			}
 		}
-		if ev, ok := ParseLine(line); ok {
-			onEvent(ev)
-		} else if len(line) > 0 {
-			onLog(string(line))
+		if err != nil {
+			break
 		}
 	}
 	return cmd.Wait()
+}
+
+// maxLineBytes is the most of one stdout line that run keeps. The rest of a
+// longer line is read and dropped, so the agent never blocks on a full pipe.
+const maxLineBytes = 1024 * 1024
+
+// readLine returns the next line without its newline, keeping at most max
+// bytes of it. Whatever is past max is consumed and discarded, so a very long
+// line (the agent logs the whole config on one line in debug mode) costs
+// bounded memory and never stops the caller from reading what follows. It
+// returns the io error once the stream ends; a final line without a newline is
+// returned along with it.
+func readLine(r *bufio.Reader, max int) ([]byte, error) {
+	var line []byte
+	for {
+		chunk, err := r.ReadSlice('\n')
+		if room := max - len(line); room > 0 {
+			if len(chunk) > room {
+				chunk = chunk[:room]
+			}
+			line = append(line, chunk...)
+		}
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		line = bytes.TrimSuffix(line, []byte{'\n'})
+		return bytes.TrimSuffix(line, []byte{'\r'}), err
+	}
 }
 
 // lockedWriter serializes concurrent writes to an underlying writer, so the

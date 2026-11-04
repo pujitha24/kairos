@@ -122,6 +122,30 @@ var _ = Describe("agentrun", func() {
 			Expect(steps).To(Equal([]string{"partition", "done"}))
 		})
 
+		It("keeps reading after a line longer than the line limit", func() {
+			dir := GinkgoT().TempDir()
+			bin := filepath.Join(dir, "kairos-agent")
+			// 2 MiB on one line, between two events.
+			script := "#!/bin/sh\n" +
+				`echo '{"event":"step","step":"partition"}'` + "\n" +
+				"head -c 2097152 /dev/zero | tr '\\0' 'a'; echo\n" +
+				`echo '{"event":"step","step":"done"}'` + "\n"
+			Expect(os.WriteFile(bin, []byte(script), 0o755)).To(Succeed())
+
+			var steps []string
+			var logged int
+			done := make(chan error, 1)
+			go func() {
+				done <- agentrun.Run(bin, "/tmp/cc.yaml", "", "nothing",
+					func(ev agentrun.ProgressEvent) { steps = append(steps, ev.Step) },
+					func(l string) { logged = len(l) },
+				)
+			}()
+			Eventually(done, "20s").Should(Receive(BeNil()))
+			Expect(steps).To(Equal([]string{"partition", "done"}))
+			Expect(logged).To(Equal(1024 * 1024))
+		})
+
 		It("returns the exit error when the agent fails", func() {
 			dir := GinkgoT().TempDir()
 			bin := filepath.Join(dir, "kairos-agent")
