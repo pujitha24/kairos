@@ -74,4 +74,17 @@ ssh_authorized_keys:
 			Expect(config.IsValid()).To(BeTrue())
 		})
 	})
+
+	Context("When lock_passwd is not a boolean", func() {
+		BeforeEach(func() {
+			yaml = `#cloud-config
+name: "kairos"
+lock_passwd: "nope"`
+		})
+
+		It("errors", func() {
+			Expect(config.IsValid()).NotTo(BeTrue())
+			Expect(config.ValidationError.Error()).To(ContainSubstring("lock_passwd"))
+		})
+	})
 })
