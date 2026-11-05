@@ -38,6 +38,11 @@ DNS_OVER_TLS=no
 				To(Equal([]string{"1.1.1.1", "fe80::1"}))
 		})
 
+		It("strips a port from the server", func() {
+			Expect(ParseNetworkdDNS("DNS=9.9.9.9:53 [2001:db8::53]:53 9.9.9.9:853#dns.quad9.net [fe80::1]:53%2 [fe80::2%eth0]:853#name 1.1.1.1\n")).
+				To(Equal([]string{"9.9.9.9", "2001:db8::53", "fe80::1", "fe80::2", "1.1.1.1"}))
+		})
+
 		It("drops anything that is not an address", func() {
 			Expect(ParseNetworkdDNS("DNS=not-an-ip 9.9.9.9\n")).To(Equal([]string{"9.9.9.9"}))
 		})

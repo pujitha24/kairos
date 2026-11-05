@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -131,8 +132,9 @@ func hasNetworkConfig(root string, dirs ...string) bool {
 
 // ParseNetworkdDNS pulls the DNS server list out of the contents of
 // /run/systemd/netif/state. networkd writes them space separated on a single
-// DNS= line, and an address can carry an interface or port suffix which the
-// resolver does not understand, so those are trimmed.
+// DNS= line, and an address can carry an interface, server name or port suffix
+// which resolv.conf cannot hold, so those are trimmed. A port other than 53
+// is dropped with a warning, as resolv.conf has no way to carry it.
 func ParseNetworkdDNS(state string) []string {
 	var servers []string
 	seen := map[string]bool{}
@@ -145,8 +147,25 @@ func ParseNetworkdDNS(state string) []string {
 			// networkd can write "1.1.1.1#cloudflare-dns.com" or
 			// "fe80::1%eth0"; resolv.conf wants the bare address.
 			addr := field
-			if i := strings.IndexAny(addr, "#%"); i >= 0 {
+			if i := strings.IndexByte(addr, '#'); i >= 0 {
 				addr = addr[:i]
+			}
+			// "9.9.9.9:53", "[2001:db8::53]:53" or "[fe80::1%2]:53" when a
+			// port is set.
+			ap, err := netip.ParseAddrPort(addr)
+			if err != nil {
+				// "fe80::1%eth0", or the zone after the port.
+				if i := strings.IndexByte(addr, '%'); i >= 0 {
+					addr = addr[:i]
+					ap, err = netip.ParseAddrPort(addr)
+				}
+			}
+			if err == nil {
+				if ap.Port() != 53 {
+					KLog.Logger.Warn().Str("server", field).
+						Msg("networkd DNS server uses a port resolv.conf cannot carry, using port 53")
+				}
+				addr = ap.Addr().WithZone("").String()
 			}
 			if net.ParseIP(addr) == nil || seen[addr] {
 				continue
